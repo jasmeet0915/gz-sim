@@ -47,9 +47,6 @@ class gz::sim::systems::BlinkVisualPrivate
   /// \brief Callback invoked by the rendering thread before a render update
   public: void OnPreRender();
 
-  /// \brief Function used to connect to the pre render event
-  public: void ConnectToPreRender();
-
   /// \brief Connection to the pre-render event
   public: common::ConnectionPtr preRenderConn;
 
@@ -151,6 +148,8 @@ void BlinkVisual::Configure(
   // Connect to the pre render event
   this->dataPtr->preRenderConn = this->dataPtr->eventMgr->Connect<events::PreRender>(
       std::bind(&BlinkVisualPrivate::OnPreRender, this->dataPtr.get()));
+  
+  gzmsg << "Initialized BlinkVisual Plugin" << std::endl;
 }
 
 /////////////////////////////////////////////////
@@ -167,6 +166,8 @@ void BlinkVisual::PreUpdate(
 /////////////////////////////////////////////////
 void BlinkVisualPrivate::OnPreRender()
 {
+  std::cout << "Pre render" << std::endl;
+
   std::lock_guard<std::mutex> lock(this->mutex);
 
   // Get a pointer to the rendering scene
@@ -212,9 +213,11 @@ void BlinkVisualPrivate::OnPreRender()
   if (elapsed <= this->aOnTime)
   {
     this->currentColor = this->colorA;
+    std::cout << "Set current color for A" << std::endl;
   }
   else
   {
+    std::cout << "Set current color for B" << std::endl;
     this->currentColor = this->colorB;
   }
 
@@ -224,3 +227,12 @@ void BlinkVisualPrivate::OnPreRender()
   this->material->SetEmissive(this->currentColor);
   this->material->SetSpecular(this->currentColor);
 }
+
+GZ_ADD_PLUGIN(BlinkVisual,
+              System,
+              BlinkVisual::ISystemConfigure,
+              BlinkVisual::ISystemPreUpdate)
+
+// Add plugin alias so that we can refer to the plugin without the version
+// namespace
+GZ_ADD_PLUGIN_ALIAS(BlinkVisual, "gz::sim::systems::BlinkVisual")

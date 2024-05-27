@@ -49,8 +49,11 @@ namespace systems
   ///      <!-- Second RGBA color. Defaults to black. -->
   ///      <color_a>0 0 0 1</color_a>
   ///
-  ///      <!-- Period in seconds. Defaults to 1 s. -->
-  ///      <period>1</period>
+  ///      <!-- On Time for color a in seconds. Defaults to 1 s. -->
+  ///      <a_on_time>1.0</a_on_time>
+  ///
+  ///      <!-- On Time for color b in seconds. Defaults to 1 s. -->
+  ///      <b_on_time>1.0</b_on_time>
   ///
   ///    </plugin>
   ///
