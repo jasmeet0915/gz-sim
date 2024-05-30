@@ -15,6 +15,12 @@
       name="gz::sim::systems::Physics">
     </plugin>
     <plugin
+      filename="gz-sim-sensors-system"
+      name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+      <background_color>0.8 0.8 0.8</background_color>
+    </plugin>
+    <plugin
       filename="gz-sim-user-commands-system"
       name="gz::sim::systems::UserCommands">
     </plugin>
@@ -102,7 +108,7 @@
       </link>
 
       <link name="chassis_top">
-        <pose>-0.151427 -0 0.509363 0 -0 0</pose>
+        <pose>-0.151427 -0 0.484363 0 -0 0</pose>
         <inertial>
           <mass>1.14395</mass>
           <inertia>
@@ -136,19 +142,9 @@
       </link>
 
       <link name="front_led">
-        <pose>-1.126427 0 0.509363 0 0 0</pose>
-         <inertial>
-          <mass>1.14395</mass>
-          <inertia>
-            <ixx>0.126164</ixx>
-            <ixy>0</ixy>
-            <ixz>0</ixz>
-            <iyy>0.416519</iyy>
-            <iyz>0</iyz>
-            <izz>0.481014</izz>
-          </inertia>
-        </inertial>
-        <visual name="visual">
+        <pose>-1.126427 0 0.484363 0 0 0</pose>
+         <inertial auto="true" />
+        <visual name="front_led_visual">
           <geometry>
             <box>
               <size>0.05 1 0.05</size>
@@ -168,7 +164,7 @@
             <b_on_time>1.0</b_on_time>
           </plugin>
         </visual>
-        <collision name="collision">
+        <collision name="front_led_collision">
           <geometry>
             <box>
               <size>0.05 1 0.05</size>
@@ -178,19 +174,9 @@
       </link>
 
       <link name="back_led">
-        <pose>0.823573 0 0.509363 0 0 0</pose>
-         <inertial>
-          <mass>1.14395</mass>
-          <inertia>
-            <ixx>0.126164</ixx>
-            <ixy>0</ixy>
-            <ixz>0</ixz>
-            <iyy>0.416519</iyy>
-            <iyz>0</iyz>
-            <izz>0.481014</izz>
-          </inertia>
-        </inertial>
-        <visual name="visual">
+        <pose>0.823573 0 0.484363 0 0 0</pose>
+        <inertial auto="true" />
+        <visual name="back_led_visual">
           <geometry>
             <box>
               <size>0.05 1 0.05</size>
@@ -210,7 +196,7 @@
             <b_on_time>1.0</b_on_time>
           </plugin>
         </visual>
-        <collision name="collision">
+        <collision name="back_led_collision">
           <geometry>
             <box>
               <size>0.05 1 0.05</size>
@@ -375,6 +361,21 @@
             <upper>1.79769e+308</upper>
           </limit>
         </axis>
+      </joint>
+
+      <joint name="base_to_top_joint" type="fixed">
+        <parent>chassis_base</parent>
+        <child>chassis_top</child>
+      </joint>
+
+      <joint name="top_to_front_led_joint" type="fixed">
+        <parent>chassis_top</parent>
+        <child>front_led</child>
+      </joint>
+
+      <joint name="top_to_back_led_joint" type="fixed">
+        <parent>chassis_top</parent>
+        <child>back_led</child>
       </joint>
 
       <joint name='caster_wheel' type='ball'>
