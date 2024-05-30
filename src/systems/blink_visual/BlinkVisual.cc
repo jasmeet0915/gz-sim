@@ -30,6 +30,9 @@
 #include <gz/transport/Node.hh>
 
 #include <gz/sim/Entity.hh>
+#include <gz/sim/Events.hh>
+#include <gz/sim/EventManager.hh>
+#include <gz/sim/Util.hh>
 #include <gz/sim/EntityComponentManager.hh>
 #include <gz/sim/components/Visual.hh>
 #include <gz/sim/rendering/Events.hh>
@@ -45,10 +48,14 @@ using namespace std::chrono_literals;
 class gz::sim::systems::BlinkVisualPrivate
 {
   /// \brief Callback invoked by the rendering thread before a render update
-  public: void OnPreRender();
+  public: void OnSceneUpdate();
+
+  /// \brief Function to search for Visual By Entity ID
+  public: rendering::VisualPtr FindEntityVisual(rendering::ScenePtr _scene,
+    gz::sim::Entity _entity);
 
   /// \brief Connection to the pre-render event
-  public: common::ConnectionPtr preRenderConn;
+  public: common::ConnectionPtr sceneUpdateConn{nullptr};
 
   /// \brief Pointer to EventManager
   public: EventManager *eventMgr{nullptr};
@@ -60,10 +67,10 @@ class gz::sim::systems::BlinkVisualPrivate
   public: rendering::ScenePtr scene{nullptr};
 
   /// \brief Visual whose color will be changed.
-  public: rendering::VisualPtr visual{nullptr};
+  public: rendering::VisualPtr ledVisual{nullptr};
 
   /// \brief Pointer to the Material of the visual
-  public: rendering::MaterialPtr material{nullptr};
+  public: rendering::MaterialPtr ledMaterial{nullptr};
 
   /// \brief First color.
   public: math::Color colorA{math::Color(1, 0, 0, 1)};
@@ -146,9 +153,9 @@ void BlinkVisual::Configure(
   this->dataPtr->period = this->dataPtr->aOnTime + this->dataPtr->bOnTime;
 
   // Connect to the pre render event
-  this->dataPtr->preRenderConn = this->dataPtr->eventMgr->Connect<events::PreRender>(
-      std::bind(&BlinkVisualPrivate::OnPreRender, this->dataPtr.get()));
-  
+  this->dataPtr->sceneUpdateConn = this->dataPtr->eventMgr->Connect<gz::sim::events::SceneUpdate>(
+      std::bind(&BlinkVisualPrivate::OnSceneUpdate, this->dataPtr.get()));
+
   gzmsg << "Initialized BlinkVisual Plugin" << std::endl;
 }
 
@@ -163,11 +170,28 @@ void BlinkVisual::PreUpdate(
     std::chrono::duration_cast<std::chrono::duration<double, std::ratio<1, 1>>>(_info.simTime);
 }
 
-/////////////////////////////////////////////////
-void BlinkVisualPrivate::OnPreRender()
+//////////////////////////////////////////////////
+gz::rendering::VisualPtr BlinkVisualPrivate::FindEntityVisual(
+    gz::rendering::ScenePtr _scene, gz::sim::Entity _entity)
 {
-  std::cout << "Pre render" << std::endl;
+  for (unsigned int i = 0; i < _scene->VisualCount(); ++i)
+  {
+    gz::rendering::VisualPtr visual = _scene->VisualByIndex(i);
+    if (visual->HasUserData("gazebo-entity"))
+    {
+      auto userData = visual->UserData("gazebo-entity");
+      if (_entity == std::get<uint64_t>(userData))
+      {
+        return visual;
+      }
+    }
+  }
+  return nullptr;
+}
 
+/////////////////////////////////////////////////
+void BlinkVisualPrivate::OnSceneUpdate()
+{
   std::lock_guard<std::mutex> lock(this->mutex);
 
   // Get a pointer to the rendering scene
@@ -183,49 +207,54 @@ void BlinkVisualPrivate::OnPreRender()
   }
 
   // Get the pointer to the visual using the Enitity ID and its material if not already set
-  if (!this->visual)
+  if (!this->ledVisual)
   {
-    this->visual = this->scene->VisualById(this->visualEntity);
-    if (!this->visual)
+    this->ledVisual = this->FindEntityVisual(this->scene, this->visualEntity);
+    if (!this->ledVisual)
     {
       gzerr << "Visual with the id: " << this->visualEntity <<
         " was not found. Maybe entity for plugin is not a Visual?" << std::endl;
       return;
     }
-    this->material = this->visual->Material();
+    this->ledMaterial = this->ledVisual->GeometryByIndex(0u)->Material();
+  }
+
+  // If material is not set, print an error and return
+  if (!this->ledMaterial)
+  {
+    gzerr << "Could not access the material for the visual" << std::endl;
+    return;
   }
 
   // Set the cycle start time. This is used to calculate the elapsed time in every PreRender event
   if (this->cycleStartTime == std::chrono::duration<double>::zero() ||
-      this->cycleStartTime > currentSimTime)
+      this->cycleStartTime > this->currentSimTime)
   {
-    this->cycleStartTime = currentSimTime;
+    this->cycleStartTime = this->currentSimTime;
   }
-  std::chrono::duration<double> elapsed = currentSimTime - this->cycleStartTime;
+  std::chrono::duration<double> elapsed = this->currentSimTime - this->cycleStartTime;
 
   // Restart cycle
   if (elapsed >= this->period)
   {
-    this->cycleStartTime = currentSimTime;
+    this->cycleStartTime = this->currentSimTime;
   }
 
   // Set the current color based on the time elapsed in the current cycle
   if (elapsed <= this->aOnTime)
   {
     this->currentColor = this->colorA;
-    std::cout << "Set current color for A" << std::endl;
   }
   else
   {
-    std::cout << "Set current color for B" << std::endl;
     this->currentColor = this->colorB;
   }
 
   // Set the material of the visual with the current color
-  this->material->SetDiffuse(this->currentColor);
-  this->material->SetAmbient(this->currentColor);
-  this->material->SetEmissive(this->currentColor);
-  this->material->SetSpecular(this->currentColor);
+  this->ledMaterial->SetDiffuse(this->currentColor);
+  this->ledMaterial->SetAmbient(this->currentColor);
+  this->ledMaterial->SetEmissive(this->currentColor);
+  this->ledMaterial->SetSpecular(this->currentColor);
 }
 
 GZ_ADD_PLUGIN(BlinkVisual,
