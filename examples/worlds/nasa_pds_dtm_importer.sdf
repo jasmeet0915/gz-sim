@@ -1,0 +1,79 @@
+<?xml version="1.0" ?>
+<sdf version="1.11">
+  <world name="nasa_pds_dtm_importer">
+    <physics name="1ms" type="ignored">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+    <plugin
+      filename="gz-sim-physics-system"
+      name="gz::sim::systems::Physics">
+    </plugin>
+    <plugin
+      filename="gz-sim-user-commands-system"
+      name="gz::sim::systems::UserCommands">
+    </plugin>
+    <plugin
+      filename="gz-sim-scene-broadcaster-system"
+      name="gz::sim::systems::SceneBroadcaster">
+    </plugin>
+    <plugin
+      filename="gz-sim-contact-system"
+      name="gz::sim::systems::Contact">
+    </plugin>
+
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <attenuation>
+        <range>1000</range>
+        <constant>0.9</constant>
+        <linear>0.01</linear>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.8 0.8 0.8 1</ambient>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+            <specular>0.8 0.8 0.8 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <plugin
+      filename="gz-sim-nasa-pds-dtm-importer-system"
+      name="gz::sim::systems::NasaPdsDtmImporter">
+      <terrain_name>gale_crater</terrain_name>
+      <dtm_pds_url>https://www.uahirise.org/PDS/DTM/ESP/ORB_075400_075499/ESP_075443_1225_ESP_074731_1225/DTEEC_075443_1225_074731_1225_A01.IMG</dtm_pds_url>
+
+      <raster_x_size_limit>100.0</raster_x_size_limit>
+      <raster_y_size_limit>100.0</raster_y_size_limit>
+
+      <use_color>false</use_color>
+      <terrain_color>3 3 3</terrain_color>
+    </plugin>
+  </world>
+</sdf>
