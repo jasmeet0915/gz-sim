@@ -18,14 +18,19 @@
 #include <string>
 
 #include <gz/plugin/Register.hh>
-#include <gz/math/Vector3.hh>
 
-#include <gz/common/Profiler.hh>
 #include <gz/common/geospatial/Dem.hh>
+
+#include <gz/math/Color.hh>
+#include <gz/math/Vector3.hh>
 
 #include <gz/rendering/RenderEngine.hh>
 #include <gz/rendering/RenderingIface.hh>
+#include <gz/rendering/Geometry.hh>
+#include <gz/rendering/Heightmap.hh>
+#include <gz/rendering/HeightmapDescriptor.hh>
 #include <gz/rendering/Scene.hh>
+#include <gz/rendering/Visual.hh>
 
 #include "gz/sim/rendering/RenderUtil.hh"
 #include "gz/sim/rendering/Events.hh"
@@ -34,9 +39,10 @@
 #include "gz/sim/components/Name.hh"
 #include "gz/sim/components/ParentEntity.hh"
 #include "gz/sim/components/World.hh"
-#include "gz/sim/Conversions.hh"
+
 #include "gz/sim/EntityComponentManager.hh"
 #include "gz/sim/Events.hh"
+#include "gz/sim/Conversions.hh"
 #include "gz/sim/Util.hh"
 
 #include "NasaPdsDtmImporter.hh"
@@ -50,6 +56,9 @@ class gz::sim::systems::NasaPdsDtmImporterPrivate
 {
   /// \brief Pointer to the event manager
   public: EventManager *eventMgr = nullptr;
+
+  /// \brief Connection to pre-render event callback.
+  public: gz::common::ConnectionPtr preRenderConnection{nullptr};
 
   /// \brief Entity
   public: Entity entity;
@@ -72,10 +81,27 @@ class gz::sim::systems::NasaPdsDtmImporterPrivate
   /// \brief Color for the terrain if no texture is available for the DTM
   public: math::Vector3d color = math::Vector3d{1.4, 1.2, 1.0};
 
-  /// \brief Dem Class instance from gz common for loading DEMs
-  public: gz::common::Dem demImporter;
-};
+  public: double equatorialAxisRadius{0.0};
 
+
+  public: double polarAxisRadius{0.0};
+
+  /// \brief The spherical coordinates object for the terrain
+  public: math::SphericalCoordinates terrainSphericalCoordinates =
+    math::SphericalCoordinates();
+
+  /// \brief Dem Class instance from gz common for loading DEMs
+  public: std::shared_ptr<gz::common::Dem> demImporter = std::make_shared<gz::common::Dem>();
+
+  public: gz::rendering::HeightmapDescriptor heightmapDescriptor;
+  public: gz::rendering::HeightmapTexture heightmapTexture;
+  public: gz::rendering::VisualPtr heightmapVisual;
+  public: gz::rendering::GeometryPtr heightmapGeometry{nullptr};
+  public: bool demLoadedCorrectly{false};
+  public: bool addedHeightmapVisualToScene{false};
+
+  public: void AddHeightmapToScene();
+};
 
 //////////////////////////////////////////////////
 NasaPdsDtmImporter::NasaPdsDtmImporter()
@@ -115,25 +141,40 @@ void NasaPdsDtmImporter::Configure(
   if (_sdf->HasElement("raster_x_size_limit"))
   {
     this->dataPtr->rasterXSizeLimit = _sdf->Get<double>("raster_x_size_limit");
+    this->dataPtr->demImporter->SetRasterXSizeLimit(this->dataPtr->rasterXSizeLimit);
   }
 
   if (_sdf->HasElement("raster_y_size_limit"))
   {
     this->dataPtr->rasterYSizeLimit = _sdf->Get<double>("raster_y_size_limit");
+    this->dataPtr->demImporter->SetRasterXSizeLimit(this->dataPtr->rasterYSizeLimit);
   }
 
-  // Load the dem using the URL
-  this->dataPtr->demImporter.SetRasterXSizeLimit(this->dataPtr->rasterXSizeLimit);
-  this->dataPtr->demImporter.SetRasterXSizeLimit(this->dataPtr->rasterYSizeLimit);
-  int res = this->dataPtr->demImporter.Load("/vsicurl/" + this->dataPtr->dtmPdsUrl);
+  if (_sdf->HasElement("equatorial_axis_radius"))
+  {
+    this->dataPtr->equatorialAxisRadius = _sdf->Get<double>("equatorial_axis_radius");
+  }
 
-  // TODO: Set Spherical Coordinates for the DEM
+  if (_sdf->HasElement("polar_axis_radius"))
+  {
+    this->dataPtr->polarAxisRadius = _sdf->Get<double>("polar_axis_radius");
+  }
+
+  // Set Spherical Coordinates for the DEM
+  this->dataPtr->terrainSphericalCoordinates = math::SphericalCoordinates(
+    math::SphericalCoordinates::CUSTOM_SURFACE, this->dataPtr->equatorialAxisRadius,
+    this->dataPtr->polarAxisRadius);
+  this->dataPtr->demImporter->SetSphericalCoordinates(this->dataPtr->terrainSphericalCoordinates);
+
+  // Load the dem using the URL
+  int res = this->dataPtr->demImporter->Load("/vsicurl/" + this->dataPtr->dtmPdsUrl);
 
   if (res != 0)
   {
     gzerr << "[NASA PDS DTM IMPORTER] Failed in loading the DTM named: "
       << this->dataPtr->terrainName << "from URL: " << this->dataPtr->dtmPdsUrl << std::endl;
 
+    this->dataPtr->demLoadedCorrectly = false;
     return;
   }
   else
@@ -142,13 +183,75 @@ void NasaPdsDtmImporter::Configure(
       << this->dataPtr->terrainName << " from URL: " << this->dataPtr->dtmPdsUrl << std::endl;
 
     gzmsg << "[NASA PDS DTM IMPORTER] The width and height of the imported DTM is "
-      << this->dataPtr->demImporter.WorldWidth() << ", "
-      << this->dataPtr->demImporter.WorldHeight() << std::endl;
+      << this->dataPtr->demImporter->WorldWidth() << ", "
+      << this->dataPtr->demImporter->WorldHeight() << std::endl;
 
     gzmsg << "[NASA PDS DTM IMPORTER] The min and max elevation of the DTM is "
-      << this->dataPtr->demImporter.MinElevation() << ", "
-      << this->dataPtr->demImporter.MaxElevation() << std::endl;
+      << this->dataPtr->demImporter->MinElevation() << ", "
+      << this->dataPtr->demImporter->MaxElevation() << std::endl;
   }
+
+  this->dataPtr->heightmapDescriptor.SetName(this->dataPtr->terrainName);
+  this->dataPtr->heightmapDescriptor.SetData(this->dataPtr->demImporter);
+  this->dataPtr->heightmapDescriptor.SetSize({20, 20, 6.85});
+  this->dataPtr->heightmapDescriptor.SetSampling(2u);
+  this->dataPtr->heightmapDescriptor.SetUseTerrainPaging(false);
+  this->heightmapTexture = gz::rendering::HeightmapTexture();
+  // this->dataPtr->heightmapTexture.SetSize(20.0);
+  // this->dataPtr->heightmapTexture.SetDiffuse("../media/moon_diffuse.png");
+  // this->dataPtr->heightmapTexture.SetNormal("../media/moon_normal.png");
+
+  this->dataPtr->heightmapDescriptor.AddTexture(this->dataPtr->heightmapTexture);
+  this->dataPtr->heightmapDescriptor.SetPosition({0, 0,
+    std::abs(this->dataPtr->demImporter->MinElevation())});
+
+  this->dataPtr->demLoadedCorrectly = true;
+
+  this->dataPtr->preRenderConnection =
+      _eventMgr.Connect<gz::sim::events::PreRender>(std::bind(
+          &NasaPdsDtmImporterPrivate::AddHeightmapToScene,
+          this->dataPtr.get()));
+  std::cout << "Created rendering events connection: " << std::endl;
+}
+
+//////////////////////////////////////////////////
+void NasaPdsDtmImporterPrivate::AddHeightmapToScene()
+{
+  std::cout << "Post Render Event " << std::endl;
+  if (!this->addedHeightmapVisualToScene)
+  {
+    std::cout << "Adding heightmap to scene " << std::endl;
+    gz::rendering::ScenePtr scene(nullptr);
+    scene = gz::rendering::sceneFromFirstRenderEngine();
+
+    if (scene == nullptr || !scene->IsInitialized())
+    {
+      gzerr << "Scene is not ready at the moment" << std::endl;
+      return;
+    }
+
+    gz::rendering::VisualPtr rootVis(nullptr);
+    rootVis = scene->RootVisual();
+    if (rootVis == nullptr)
+    {
+      gzerr << "No root visual found. Returning" << std::endl;
+      return;
+    }
+
+    if (this->demLoadedCorrectly)
+    {
+      this->heightmapVisual = scene->CreateVisual(
+        this->terrainName + "_visual");
+      this->heightmapGeometry = scene->CreateHeightmap(this->heightmapDescriptor);
+      this->heightmapVisual->AddGeometry(this->heightmapGeometry);
+      rootVis->AddChild(this->heightmapVisual);
+    }
+
+    this->addedHeightmapVisualToScene = true;
+    std::cout << "Added heightmap to scene " << std::endl;
+  }
+
+  this->preRenderConnection.reset();
 }
 
 GZ_ADD_PLUGIN(NasaPdsDtmImporter,
